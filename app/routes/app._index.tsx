@@ -1,7 +1,7 @@
-import { useEffect } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { useFetcher } from "@remix-run/react";
+import { useFetcher, useLoaderData, useSubmit } from "@remix-run/react";
 import {
   Page,
   Layout,
@@ -9,327 +9,373 @@ import {
   Card,
   Button,
   BlockStack,
-  Box,
-  List,
   Link,
   InlineStack,
+  TextField,
+  Checkbox,
+  Toast,
+  Frame,
+  Banner,
 } from "@shopify/polaris";
-import { TitleBar, useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
+// @ts-ignore
+import { supabase } from "../supabase.server.ts";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  await authenticate.admin(request);
+  const { session, admin } = await authenticate.admin(request);
 
-  return null;
-};
+  const { data: store, error } = await supabase
+    .from("Store")
+    .select("*")
+    .eq("id", session.shop)
+    .single();
 
-export const action = async ({ request }: ActionFunctionArgs) => {
-  const { admin } = await authenticate.admin(request);
-  const color = ["Red", "Orange", "Yellow", "Green"][
-    Math.floor(Math.random() * 4)
-  ];
-  const response = await admin.graphql(
-    `#graphql
-      mutation populateProduct($input: ProductInput!) {
-        productCreate(input: $input) {
-          product {
-            id
-            title
-            handle
-            status
-            variants(first: 10) {
-              edges {
-                node {
-                  id
-                  price
-                  barcode
-                  createdAt
-                }
-              }
-            }
-          }
-        }
-      }`,
-    {
-      variables: {
-        input: {
-          title: `${color} Snowboard`,
-        },
-      },
-    },
-  );
-  const responseJson = await response.json();
+  // Fetch the current theme ID
+  const themes = await admin.rest.resources.Theme.all({
+    session: session,
+  });
+  const mainTheme = themes.data.find((theme) => theme.role === "main");
+  const themeId = mainTheme ? mainTheme.id : null;
 
-  const product = responseJson.data!.productCreate!.product!;
-  const variantId = product.variants.edges[0]!.node!.id!;
+  const asset = await admin.rest.resources.Asset.all({
+    session: session,
+    theme_id: themeId,
+    asset: { key: "config/settings_data.json" },
+  });
 
-  const variantResponse = await admin.graphql(
-    `#graphql
-    mutation shopifyRemixTemplateUpdateVariant($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
-      productVariantsBulkUpdate(productId: $productId, variants: $variants) {
-        productVariants {
-          id
-          price
-          barcode
-          createdAt
-        }
-      }
-    }`,
-    {
-      variables: {
-        productId: product.id,
-        variants: [{ id: variantId, price: "100.00" }],
-      },
-    },
-  );
+  let doesAppEmbedExist = false;
 
-  const variantResponseJson = await variantResponse.json();
+  const settingsJson: any = JSON.parse(asset.data[0].value || "{}");
+
+  const currentSettings = settingsJson?.current?.blocks;
+
+  if (currentSettings) {
+    doesAppEmbedExist = Object.values(currentSettings).some(
+      (block: any) => block.type && block.type.includes("clarity-pixel"),
+    );
+  }
 
   return json({
-    product: responseJson!.data!.productCreate!.product,
-    variant:
-      variantResponseJson!.data!.productVariantsBulkUpdate!.productVariants,
+    clarityId: store?.clarityId || null,
+    details: session,
+    doesAppEmbedExist,
   });
 };
 
-export default function Index() {
-  const fetcher = useFetcher<typeof action>();
+export const action = async ({ request }: ActionFunctionArgs) => {
+  const { session } = await authenticate.admin(request);
 
-  const shopify = useAppBridge();
-  const isLoading =
-    ["loading", "submitting"].includes(fetcher.state) &&
-    fetcher.formMethod === "POST";
-  const productId = fetcher.data?.product?.id.replace(
-    "gid://shopify/Product/",
-    "",
+  const formData = await request.formData();
+
+  // Existing action logic for updating store data
+  const clarityId = formData.get("clarityId") as string;
+  const details = JSON.parse(formData.get("details") as string);
+
+  const { data, error } = await supabase.from("Store").upsert(
+    {
+      id: session.shop,
+      clarityId,
+      details,
+    },
+    {
+      onConflict: "id",
+    },
   );
 
-  useEffect(() => {
-    if (productId) {
-      shopify.toast.show("Product created");
+  if (error) {
+    console.error("Error updating store data:", error);
+    return json({ success: false, error: error.message }, { status: 400 });
+  }
+
+  return json({ success: true });
+};
+
+export default function Index() {
+  const {
+    clarityId: initialClarityId,
+    details: initialDetails,
+    doesAppEmbedExist,
+  } = useLoaderData<typeof loader>();
+
+  const [clarityId, setClarityId] = useState<string | null>(initialClarityId);
+  const [details, setDetails] = useState<any>(initialDetails || {});
+  const [selectedEvents, setSelectedEvents] = useState({
+    viewCategory: true,
+    viewItem: true,
+    search: true,
+    addToCart: true,
+    beginCheckout: true,
+    purchase: true,
+  });
+  const [toastActive, setToastActive] = useState(false);
+  const [toastContent, setToastContent] = useState("");
+
+  const fetcher = useFetcher();
+  const submit = useSubmit();
+
+  const updateStore = useCallback(() => {
+    if (clarityId !== null) {
+      fetcher.submit(
+        {
+          clarityId,
+          details: JSON.stringify(details),
+        },
+        { method: "post" },
+      );
     }
-  }, [productId, shopify]);
-  const generateProduct = () => fetcher.submit({}, { method: "POST" });
+  }, [clarityId, details, fetcher]);
+
+  const handleEventChange = (event: keyof typeof selectedEvents) => {
+    setSelectedEvents((prev) => {
+      const newSelectedEvents = { ...prev, [event]: !prev[event] };
+      setDetails((prevDetails: any) => ({
+        ...prevDetails,
+        selectedEvents: newSelectedEvents,
+      }));
+      return newSelectedEvents;
+    });
+  };
+
+  const codeSnippet = `analytics.subscribe("checkout_completed", async (event) => {
+  console.log("from Purchase");
+  const clarityScript = document.createElement("script");
+  clarityScript.async = true;
+  clarityScript.type = "text/javascript";
+  ${
+    clarityId
+      ? `clarityScript.innerHTML = \`
+    (function(c,l,a,r,i,t,y){
+        c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
+        t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
+        y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
+    })(window, document, "clarity", "script", "${clarityId}");
+  \`;`
+      : "// ... more code will appear here after setting Clarity ID"
+  }
+  document.head.appendChild(clarityScript);
+});`;
+
+  const handleCopy = useCallback(() => {
+    if (!clarityId) {
+      setToastContent(
+        "Clarity ID is not set. Please enter a valid Clarity ID before copying.",
+      );
+      setToastActive(true);
+      return;
+    }
+    navigator.clipboard
+      .writeText(codeSnippet)
+      .then(() => {
+        console.log("Code copied to clipboard");
+        setToastContent("Code copied to clipboard successfully!");
+        setToastActive(true);
+      })
+      .catch((err) => {
+        console.error("Failed to copy code: ", err);
+        setToastContent("Failed to copy code. Please try again.");
+        setToastActive(true);
+      });
+  }, [codeSnippet, clarityId]);
+
+  const handleCustomerEventsRedirect = () => {
+    const shopId = details.shop.split(".")[0];
+
+    const redirect = `https://${shopId}.myshopify.com/admin/settings/customer_events`;
+
+    window.open(redirect, "_blank", "noopener,noreferrer");
+  };
 
   return (
-    <Page>
-      <TitleBar title="Remix app template">
-        <button variant="primary" onClick={generateProduct}>
-          Generate a product
-        </button>
-      </TitleBar>
-      <BlockStack gap="500">
+    <Frame>
+      <Page>
         <Layout>
           <Layout.Section>
             <Card>
-              <BlockStack gap="500">
-                <BlockStack gap="200">
-                  <Text as="h2" variant="headingMd">
-                    Congrats on creating a new Shopify app 🎉
-                  </Text>
-                  <Text variant="bodyMd" as="p">
-                    This embedded app template uses{" "}
-                    <Link
-                      url="https://shopify.dev/docs/apps/tools/app-bridge"
-                      target="_blank"
-                      removeUnderline
-                    >
-                      App Bridge
-                    </Link>{" "}
-                    interface examples like an{" "}
-                    <Link url="/app/additional" removeUnderline>
-                      additional page in the app nav
-                    </Link>
-                    , as well as an{" "}
-                    <Link
-                      url="https://shopify.dev/docs/api/admin-graphql"
-                      target="_blank"
-                      removeUnderline
-                    >
-                      Admin GraphQL
-                    </Link>{" "}
-                    mutation demo, to provide a starting point for app
-                    development.
-                  </Text>
-                </BlockStack>
-                <BlockStack gap="200">
-                  <Text as="h3" variant="headingMd">
-                    Get started with products
-                  </Text>
+              <BlockStack gap="400">
+                <Text as="h2" variant="headingMd">
+                  App Embed Status
+                </Text>
+                {details.appInstalled ? (
                   <Text as="p" variant="bodyMd">
-                    Generate a product with GraphQL and get the JSON output for
-                    that product. Learn more about the{" "}
-                    <Link
-                      url="https://shopify.dev/docs/api/admin-graphql/latest/mutations/productCreate"
-                      target="_blank"
-                      removeUnderline
-                    >
-                      productCreate
-                    </Link>{" "}
-                    mutation in our API references.
+                    App is successfully embedded in your theme.
                   </Text>
-                </BlockStack>
-                <InlineStack gap="300">
-                  <Button loading={isLoading} onClick={generateProduct}>
-                    Generate a product
-                  </Button>
-                  {fetcher.data?.product && (
-                    <Button
-                      url={`shopify:admin/products/${productId}`}
-                      target="_blank"
-                      variant="plain"
-                    >
-                      View product
-                    </Button>
-                  )}
-                </InlineStack>
-                {fetcher.data?.product && (
-                  <>
-                    <Text as="h3" variant="headingMd">
-                      {" "}
-                      productCreate mutation
-                    </Text>
-                    <Box
-                      padding="400"
-                      background="bg-surface-active"
-                      borderWidth="025"
-                      borderRadius="200"
-                      borderColor="border"
-                      overflowX="scroll"
-                    >
-                      <pre style={{ margin: 0 }}>
-                        <code>
-                          {JSON.stringify(fetcher.data.product, null, 2)}
-                        </code>
-                      </pre>
-                    </Box>
-                    <Text as="h3" variant="headingMd">
-                      {" "}
-                      productVariantsBulkUpdate mutation
-                    </Text>
-                    <Box
-                      padding="400"
-                      background="bg-surface-active"
-                      borderWidth="025"
-                      borderRadius="200"
-                      borderColor="border"
-                      overflowX="scroll"
-                    >
-                      <pre style={{ margin: 0 }}>
-                        <code>
-                          {JSON.stringify(fetcher.data.variant, null, 2)}
-                        </code>
-                      </pre>
-                    </Box>
-                  </>
+                ) : (
+                  <Banner
+                    title="App not embedded"
+                    action={{
+                      content: "Go to Theme Settings",
+                      onAction: () => {
+                        const shopId = details.shop.split(".")[0];
+                        window.open(
+                          `https://${shopId}.myshopify.com/admin/themes/current/editor?context=apps`,
+                          "_blank",
+                          "noopener,noreferrer",
+                        );
+                      },
+                    }}
+                  >
+                    <p>
+                      The app is not embedded in your theme. Please go to your
+                      theme settings to embed the app for proper functionality.
+                    </p>
+                  </Banner>
                 )}
               </BlockStack>
             </Card>
+
+            <Card>
+              <BlockStack gap="400">
+                <Text as="h2" variant="headingMd">
+                  Basic Setup
+                </Text>
+                <Text as="p">
+                  Submit your Microsoft Clarity ID and start tracking events.
+                </Text>
+                <Link url="#">Help Video</Link>
+                <TextField
+                  label="Microsoft Clarity ID"
+                  value={clarityId || ""}
+                  onChange={(value) => {
+                    setClarityId(value || null);
+                  }}
+                  autoComplete="off"
+                />
+                <InlineStack gap="200">
+                  <Button
+                    onClick={() => {
+                      window.open(
+                        "https://clarity.microsoft.com/",
+                        "_blank",
+                        "noopener,noreferrer",
+                      );
+                    }}
+                  >
+                    Go To Microsoft Clarity
+                  </Button>
+                  <Button onClick={updateStore}>Change</Button>
+                </InlineStack>
+              </BlockStack>
+            </Card>
           </Layout.Section>
-          <Layout.Section variant="oneThird">
-            <BlockStack gap="500">
-              <Card>
-                <BlockStack gap="200">
-                  <Text as="h2" variant="headingMd">
-                    App template specs
-                  </Text>
-                  <BlockStack gap="200">
-                    <InlineStack align="space-between">
-                      <Text as="span" variant="bodyMd">
-                        Framework
-                      </Text>
-                      <Link
-                        url="https://remix.run"
-                        target="_blank"
-                        removeUnderline
+
+          <Layout.Section>
+            <Card>
+              <BlockStack gap="400">
+                <Text as="h2" variant="headingMd">
+                  Create Custom Events
+                </Text>
+                <Text as="p">
+                  Open Store Settings and navigate to Customer Events. Add a
+                  custom pixel by copying the given code, paste it in the
+                  specified section, and save your modifications. Confirm the
+                  pixel is appropriately connected.
+                </Text>
+                <Card>
+                  <BlockStack gap="400">
+                    <div style={{ position: "relative" }}>
+                      <pre
+                        style={{
+                          backgroundColor: "#f4f6f8",
+                          padding: "1rem",
+                          borderRadius: "4px",
+                          overflow: "hidden",
+                        }}
                       >
-                        Remix
-                      </Link>
-                    </InlineStack>
-                    <InlineStack align="space-between">
-                      <Text as="span" variant="bodyMd">
-                        Database
-                      </Text>
-                      <Link
-                        url="https://www.prisma.io/"
-                        target="_blank"
-                        removeUnderline
+                        <code>{codeSnippet}</code>
+                      </pre>
+                      {!clarityId && (
+                        <div
+                          style={{
+                            position: "absolute",
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            height: "50%",
+                            background: "linear-gradient(transparent, #f4f6f8)",
+                            pointerEvents: "none",
+                          }}
+                        />
+                      )}
+                    </div>
+                    <InlineStack gap="200">
+                      <Button
+                        onClick={handleCustomerEventsRedirect}
+                        disabled={!clarityId}
                       >
-                        Prisma
-                      </Link>
-                    </InlineStack>
-                    <InlineStack align="space-between">
-                      <Text as="span" variant="bodyMd">
-                        Interface
-                      </Text>
-                      <span>
-                        <Link
-                          url="https://polaris.shopify.com"
-                          target="_blank"
-                          removeUnderline
-                        >
-                          Polaris
-                        </Link>
-                        {", "}
-                        <Link
-                          url="https://shopify.dev/docs/apps/tools/app-bridge"
-                          target="_blank"
-                          removeUnderline
-                        >
-                          App Bridge
-                        </Link>
-                      </span>
-                    </InlineStack>
-                    <InlineStack align="space-between">
-                      <Text as="span" variant="bodyMd">
-                        API
-                      </Text>
-                      <Link
-                        url="https://shopify.dev/docs/api/admin-graphql"
-                        target="_blank"
-                        removeUnderline
+                        Customer Events
+                      </Button>
+                      <Button
+                        variant="plain"
+                        onClick={handleCopy}
+                        disabled={!clarityId}
                       >
-                        GraphQL API
-                      </Link>
+                        Copy
+                      </Button>
                     </InlineStack>
                   </BlockStack>
-                </BlockStack>
-              </Card>
-              <Card>
-                <BlockStack gap="200">
-                  <Text as="h2" variant="headingMd">
-                    Next steps
-                  </Text>
-                  <List>
-                    <List.Item>
-                      Build an{" "}
-                      <Link
-                        url="https://shopify.dev/docs/apps/getting-started/build-app-example"
-                        target="_blank"
-                        removeUnderline
-                      >
-                        {" "}
-                        example app
-                      </Link>{" "}
-                      to get started
-                    </List.Item>
-                    <List.Item>
-                      Explore Shopify’s API with{" "}
-                      <Link
-                        url="https://shopify.dev/docs/apps/tools/graphiql-admin-api"
-                        target="_blank"
-                        removeUnderline
-                      >
-                        GraphiQL
-                      </Link>
-                    </List.Item>
-                  </List>
-                </BlockStack>
-              </Card>
-            </BlockStack>
+                </Card>
+              </BlockStack>
+            </Card>
+          </Layout.Section>
+
+          <Layout.Section>
+            <Card>
+              <BlockStack gap="400">
+                <Text as="h2" variant="headingMd">
+                  Event Options
+                </Text>
+                <Text as="p">
+                  Select the option you want to track. This will allow you to
+                  track the conversion.
+                </Text>
+                <InlineStack gap="500" wrap={false}>
+                  <BlockStack gap="200">
+                    <Checkbox
+                      label="View Category"
+                      checked={selectedEvents.viewCategory}
+                      onChange={() => handleEventChange("viewCategory")}
+                    />
+                    <Checkbox
+                      label="View Item"
+                      checked={selectedEvents.viewItem}
+                      onChange={() => handleEventChange("viewItem")}
+                    />
+                    <Checkbox
+                      label="Search"
+                      checked={selectedEvents.search}
+                      onChange={() => handleEventChange("search")}
+                    />
+                  </BlockStack>
+                  <BlockStack gap="200">
+                    <Checkbox
+                      label="Add to Cart"
+                      checked={selectedEvents.addToCart}
+                      onChange={() => handleEventChange("addToCart")}
+                    />
+                    <Checkbox
+                      label="Begin Checkout"
+                      checked={selectedEvents.beginCheckout}
+                      onChange={() => handleEventChange("beginCheckout")}
+                    />
+                    <Checkbox
+                      label="Purchase"
+                      checked={selectedEvents.purchase}
+                      onChange={() => handleEventChange("purchase")}
+                    />
+                  </BlockStack>
+                </InlineStack>
+                <Button onClick={updateStore}>Save</Button>
+              </BlockStack>
+            </Card>
           </Layout.Section>
         </Layout>
-      </BlockStack>
-    </Page>
+        {toastActive && (
+          <Toast
+            content={toastContent}
+            onDismiss={() => setToastActive(false)}
+          />
+        )}
+      </Page>
+    </Frame>
   );
 }

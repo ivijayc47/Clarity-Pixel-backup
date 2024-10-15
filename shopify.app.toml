@@ -3,15 +3,24 @@
 client_id = "d3d050ab204f491ca404e42cc981c221"
 name = "Clarity Pixel"
 handle = "clarity-pixel-2"
-application_url = "https://example.com/"
+application_url = "https://belle-drainage-expand-executive.trycloudflare.com"
 embedded = true
+
+[build]
+automatically_update_urls_on_dev = true
+dev_store_url = "quickstart-2641f874.myshopify.com"
+include_config_on_deploy = true
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = ""
+scopes = "read_themes,write_pixels"
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [
+  "https://belle-drainage-expand-executive.trycloudflare.com/auth/callback",
+  "https://belle-drainage-expand-executive.trycloudflare.com/auth/shopify/callback",
+  "https://belle-drainage-expand-executive.trycloudflare.com/api/auth/callback"
+]
 
 [webhooks]
 api_version = "2024-10"
