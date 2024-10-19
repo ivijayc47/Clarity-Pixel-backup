@@ -25,7 +25,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session, admin } = await authenticate.admin(request);
 
   const { data: store, error } = await supabase
-    .from("Store")
+    .from("store")
     .select("*")
     .eq("id", session.shop)
     .single();
@@ -49,10 +49,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   const currentSettings = settingsJson?.current?.blocks;
 
+  console.log(currentSettings);
+
   if (currentSettings) {
-    doesAppEmbedExist = Object.values(currentSettings).some(
-      (block: any) => block.type && block.type.includes("clarity-pixel"),
-    );
+    doesAppEmbedExist = Object.values(currentSettings).some((block: any) => {
+      return block.type && block.type.includes("clarity-pixel");
+    });
   }
 
   return json({
@@ -71,7 +73,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const clarityId = formData.get("clarityId") as string;
   const details = JSON.parse(formData.get("details") as string);
 
-  const { data, error } = await supabase.from("Store").upsert(
+  const { data, error } = await supabase.from("store").upsert(
     {
       id: session.shop,
       clarityId,
@@ -190,38 +192,41 @@ export default function Index() {
       <Page>
         <Layout>
           <Layout.Section>
-            <Card>
-              <BlockStack gap="400">
-                <Text as="h2" variant="headingMd">
-                  App Embed Status
-                </Text>
-                {details.appInstalled ? (
-                  <Text as="p" variant="bodyMd">
-                    App is successfully embedded in your theme.
+            {!doesAppEmbedExist && (
+              <Card>
+                <BlockStack gap="400">
+                  <Text as="h2" variant="headingMd">
+                    App Embed Status
                   </Text>
-                ) : (
-                  <Banner
-                    title="App not embedded"
-                    action={{
-                      content: "Go to Theme Settings",
-                      onAction: () => {
-                        const shopId = details.shop.split(".")[0];
-                        window.open(
-                          `https://${shopId}.myshopify.com/admin/themes/current/editor?context=apps`,
-                          "_blank",
-                          "noopener,noreferrer",
-                        );
-                      },
-                    }}
-                  >
-                    <p>
-                      The app is not embedded in your theme. Please go to your
-                      theme settings to embed the app for proper functionality.
-                    </p>
-                  </Banner>
-                )}
-              </BlockStack>
-            </Card>
+                  {details.appInstalled ? (
+                    <Text as="p" variant="bodyMd">
+                      App is successfully embedded in your theme.
+                    </Text>
+                  ) : (
+                    <Banner
+                      title="App not embedded"
+                      action={{
+                        content: "Go to Theme Settings",
+                        onAction: () => {
+                          const shopId = details.shop.split(".")[0];
+                          window.open(
+                            `https://${shopId}.myshopify.com/admin/themes/current/editor?context=apps`,
+                            "_blank",
+                            "noopener,noreferrer",
+                          );
+                        },
+                      }}
+                    >
+                      <p>
+                        The app is not embedded in your theme. Please go to your
+                        theme settings to embed the app for proper
+                        functionality.
+                      </p>
+                    </Banner>
+                  )}
+                </BlockStack>
+              </Card>
+            )}
 
             <Card>
               <BlockStack gap="400">
