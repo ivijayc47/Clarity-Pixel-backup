@@ -3,7 +3,7 @@
 client_id = "d3d050ab204f491ca404e42cc981c221"
 name = "Clarity Pixel"
 handle = "clarity-pixel-2"
-application_url = "<SHOPIFY_APP_URL>"
+application_url = "https://clarity-pixel.vercel.app"
 embedded = true
 
 [build]
@@ -17,9 +17,9 @@ scopes = "read_customer_events,read_themes,write_pixels"
 
 [auth]
 redirect_urls = [
-  "<SHOPIFY_APP_URL>/auth/callback",
-  "<SHOPIFY_APP_URL>/auth/shopify/callback",
-  "<SHOPIFY_APP_URL>/api/auth/callback"
+  "https://clarity-pixel.vercel.app/auth/callback",
+  "https://clarity-pixel.vercel.app/auth/shopify/callback",
+  "https://clarity-pixel.vercel.app/api/auth/callback"
 ]
 
 [webhooks]
