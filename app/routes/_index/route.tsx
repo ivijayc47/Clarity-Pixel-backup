@@ -10,8 +10,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);
 
   if (url.searchParams.get("shop")) {
+    console.log("redirecting inside search parsms");
+
     throw redirect(`/app?${url.searchParams.toString()}`);
   }
+
+  console.log("redirecting outside search params");
 
   return json({ showForm: Boolean(login) });
 };
