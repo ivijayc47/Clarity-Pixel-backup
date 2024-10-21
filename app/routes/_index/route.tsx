@@ -7,6 +7,8 @@ import { login } from "../../shopify.server";
 import styles from "./styles.module.css";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
+  console.log("loader");
+
   const url = new URL(request.url);
 
   if (url.searchParams.get("shop")) {
