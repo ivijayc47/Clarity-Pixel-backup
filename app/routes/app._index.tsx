@@ -22,7 +22,7 @@ import { authenticate } from "../shopify.server";
 import { supabase } from "../supabase.server.ts";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  console.log("loader for app index");
+  console.log("loader for app index pls work");
 
   try {
     const { session, admin } = await authenticate.admin(request);
