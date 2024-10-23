@@ -24,50 +24,46 @@ import { supabase } from "../supabase.server.ts";
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   console.log("loader for app index pls work");
 
-  try {
-    const { session, admin } = await authenticate.admin(request);
+  const { session, admin } = await authenticate.admin(request);
 
-    const { data: store, error } = await supabase
-      .from("store")
-      .select("*")
-      .eq("id", session.shop)
-      .single();
+  const { data: store, error } = await supabase
+    .from("store")
+    .select("*")
+    .eq("id", session.shop)
+    .single();
 
-    // Fetch the current theme ID
-    const themes = await admin.rest.resources.Theme.all({
-      session: session,
+  // Fetch the current theme ID
+  const themes = await admin.rest.resources.Theme.all({
+    session: session,
+  });
+  const mainTheme = themes.data.find((theme) => theme.role === "main");
+  const themeId = mainTheme ? mainTheme.id : null;
+
+  const asset = await admin.rest.resources.Asset.all({
+    session: session,
+    theme_id: themeId,
+    asset: { key: "config/settings_data.json" },
+  });
+
+  let doesAppEmbedExist = false;
+
+  const settingsJson: any = JSON.parse(asset.data[0].value || "{}");
+
+  const currentSettings = settingsJson?.current?.blocks;
+
+  console.log(currentSettings);
+
+  if (currentSettings) {
+    doesAppEmbedExist = Object.values(currentSettings).some((block: any) => {
+      return block.type && block.type.includes("clarity-pixel");
     });
-    const mainTheme = themes.data.find((theme) => theme.role === "main");
-    const themeId = mainTheme ? mainTheme.id : null;
-
-    const asset = await admin.rest.resources.Asset.all({
-      session: session,
-      theme_id: themeId,
-      asset: { key: "config/settings_data.json" },
-    });
-
-    let doesAppEmbedExist = false;
-
-    const settingsJson: any = JSON.parse(asset.data[0].value || "{}");
-
-    const currentSettings = settingsJson?.current?.blocks;
-
-    console.log(currentSettings);
-
-    if (currentSettings) {
-      doesAppEmbedExist = Object.values(currentSettings).some((block: any) => {
-        return block.type && block.type.includes("clarity-pixel");
-      });
-    }
-
-    return json({
-      clarityId: store?.clarityId || null,
-      details: session,
-      doesAppEmbedExist,
-    });
-  } catch (e) {
-    console.error("Error in loader for app index", e);
   }
+
+  return json({
+    clarityId: store?.clarityId || null,
+    details: session,
+    doesAppEmbedExist,
+  });
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
