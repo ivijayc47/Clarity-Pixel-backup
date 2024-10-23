@@ -7,27 +7,25 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model session {
-  id            String    @id
-  shop          String
-  state         String
-  isOnline      Boolean   @default(false)
-  scope         String?
-  expires       DateTime? @db.Timestamp(6)
-  accessToken   String
-  userId        BigInt?
-  firstName     String?
-  lastName      String?
-  email         String?
-  accountOwner  Boolean   @default(false)
-  locale        String?
-  collaborator  Boolean?  @default(false)
-  emailVerified Boolean?  @default(false)
+model shopify_sessions {
+  id               String  @id @db.VarChar(255)
+  shop             String  @db.VarChar(255)
+  state            String  @db.VarChar(255)
+  isOnline         Boolean
+  scope            String? @db.VarChar(1024)
+  expires          Int?
+  onlineAccessInfo String? @db.VarChar(255)
+  accessToken      String? @db.VarChar(255)
+}
+
+model shopify_sessions_migrations {
+  migration_name String @id @db.VarChar(255)
 }
 
 model store {
-  id        BigInt    @id @default(autoincrement())
+  id        String    @id(map: "Store_pkey")
   clarityId String?
-  details   Json?     @db.Json
+  details   Json?
   createdAt DateTime? @default(now()) @db.Timestamptz(6)
+  shop      String?   @db.VarChar
 }

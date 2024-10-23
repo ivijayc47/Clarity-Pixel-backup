@@ -1,8 +1,8 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "d3d050ab204f491ca404e42cc981c221"
-name = "Clarity Pixel"
-handle = "clarity-pixel-2"
+name = "Clarity Session Replay Heatmap"
+handle = "clarity-session-replay-heatmap"
 application_url = "https://clarity-pixel.vercel.app"
 embedded = true
 
@@ -13,7 +13,7 @@ include_config_on_deploy = true
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_customer_events,read_themes,write_pixels"
+scopes = "read_customer_events,read_orders,read_themes,write_pixels"
 
 [auth]
 redirect_urls = [
